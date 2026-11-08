@@ -73,6 +73,31 @@ monitor`, or `espflash flash --monitor <image>`) or with `esptool` from the host
    ESP-IDF version, and the exact build and flash commands.
 4. Add a row to the table above, including the ESP-IDF version.
 
+## Simulation
+
+Two simulators, each with a job. Neither replaces hardware for camera or audio examples.
+
+**Wokwi — the learner-facing path.** The ESP-Mosaico board (ESP32-S31, 480×480 AMOLED over a
+CO5300 with CST9220 touch) is simulated, display and touch included, so a learner can see the
+example run in a browser with nothing installed. ESP32-S31 support is beta and the web editor
+cannot compile it: build the firmware locally, or take the release binary, and run it with the
+Wokwi VS Code extension or the Wokwi CLI.
+
+**esp-emulator — the CI path.** Apache-2.0, runs locally, no quota. It boots a merged flash image
+and is driven from a script (`--timeout`, `--exit-on <string>`, `--inject`), which is what makes it
+assertable in a job. It provides a WiFi soft AP and user-mode NAT (`--net user`, no `sudo`, no TAP
+device), so firmware gets outbound connectivity and the job can reach it again through `hostfwd`;
+BLE runs against a Bumble virtual controller, and two instances link up for Thread. Chips:
+C3, C5, C6, H2, P4, S3, with S31 in early bring-up. No display, no touch, no camera, no I2S.
+
+**Not simulated at all: camera and audio.** Those examples are hardware-only and are tested on a
+real devkit.
+
+Wokwi's own CI service is a separate thing from the simulator and does not fill the CI role here:
+it runs the firmware in Wokwi's cloud (50 minutes per rolling 30 days on the free plan, 5-minute
+session cap), its gateway traffic is outbound-only and monitored, and two sessions cannot be
+linked, so no device-to-device test.
+
 ## Releases
 
 Each project releases its own binaries. They are built by GitHub Actions on a tag — never
