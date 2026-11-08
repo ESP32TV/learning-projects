@@ -4,9 +4,14 @@ name: release
 # its checksums. workflow_dispatch runs the same build and the same emulator boot
 # check without publishing, which is the manual test path.
 #
-# The job runs on ubuntu-latest and calls the toolchain through docker run: the
-# official image ships no Node, so a job declared with `container:` would fail at
-# actions/checkout.
+# Every step runs inside the repository's own devcontainer image, built here from
+# .devcontainer/Dockerfile. That is the same definition a developer gets from
+# "Dev Containers: Reopen in Container", so a build that passes here is the build
+# that runs on another machine. The base image is pinned by digest inside the
+# Dockerfile, not here.
+#
+# The job runs on ubuntu-latest and drives Docker itself: the devcontainer image
+# ships no Node, so a job declared with `container:` would fail at actions/checkout.
 
 on:
   push:
@@ -17,9 +22,7 @@ permissions:
   contents: write
 
 env:
-  # Pinned by digest. `espressif/idf-rust:esp32c3_1.95.0.0` is the tag a human
-  # reads; this digest is the image the tested build actually used.
-  IDF_RUST_IMAGE: espressif/idf-rust@sha256:bb4c85481f98f1f00a38f1bf4f3d15451e61b55f7038b74a600994d630d21750
+  DEVCONTAINER_TAG: learning-projects-devcontainer:ci
   ESP_EMU_VERSION: 0.51.0
   PROJECT_DIR: projects/hello_world
   APP: hello_world
@@ -63,6 +66,24 @@ jobs:
             exit 1
           fi
 
+      - uses: docker/setup-buildx-action@v3
+
+      # Built from the committed definition, with the layer cache kept between runs
+      # so the Debian package layer is not rebuilt every time.
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          tags: ${{ env.DEVCONTAINER_TAG }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Show what the container carries
+        run: |
+          docker run --rm "$DEVCONTAINER_TAG" bash -lc 'rustc --version; cargo --version; espflash --version'
+
       # esp-idf-sys installs ESP-IDF and its host tools into .embuild on the first
       # build. Caching it is the difference between a cold run and a warm one.
       - name: Restore the ESP-IDF install
@@ -72,17 +93,14 @@ jobs:
           key: embuild-${{ runner.os }}-${{ hashFiles('projects/hello_world/Cargo.lock') }}
           restore-keys: embuild-${{ runner.os }}-
 
-      - name: Pull the pinned toolchain
-        run: docker pull "$IDF_RUST_IMAGE"
-
+      # The same two commands the project README documents for a local build.
       - name: Build and merge
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD/$PROJECT_DIR":/project -w /project \
-            -e USER=esp -e APP="$APP" -e CHIP="$CHIP" -e RUST_TARGET="$RUST_TARGET" \
-            "$IDF_RUST_IMAGE" bash -lc '
+            -e APP="$APP" -e CHIP="$CHIP" -e RUST_TARGET="$RUST_TARGET" \
+            "$DEVCONTAINER_TAG" bash -lc '
               set -e
-              source /home/esp/export-esp.sh
               cargo build --release --locked
               espflash save-image --chip "$CHIP" --merge --skip-padding \
                 "target/$RUST_TARGET/release/$APP" "$APP-$CHIP.bin"

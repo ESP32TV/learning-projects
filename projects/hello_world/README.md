@@ -18,7 +18,7 @@ I (45) hello_world: Hello, world!
 
 | Component | Version | Where it is pinned |
 | --- | --- | --- |
-| Rust container | `espressif/idf-rust:esp32c3_1.95.0.0`, digest `sha256:bb4c85481f98f1f00a38f1bf4f3d15451e61b55f7038b74a600994d630d21750` | `README.md`, `.github/workflows/release.yml` |
+| Container | the repository devcontainer, base `espressif/idf-rust:all_1.95.0.0`, digest `sha256:1e78286d8e88da2624ad003b7c05c8db0a75e6a819b1e45662a1011a0d6d18c0` | `.devcontainer/Dockerfile` |
 | Rust toolchain | `nightly-2026-04-26` | `rust-toolchain.toml` |
 | ESP-IDF | `v6.1` | `ESP_IDF_VERSION` in `.cargo/config.toml` |
 | Target | `riscv32imc-esp-espidf` | `.cargo/config.toml` |
@@ -35,15 +35,20 @@ tag.
 
 ## Build
 
-No toolchain is installed on the host:
+No toolchain is installed on the host. The build runs in the repository devcontainer, which is also
+what CI builds and uses, so a local result and a CI result come from the same image:
 
 ```bash
-docker run --rm -v "$PWD":/project -w /project -e USER=esp \
-  espressif/idf-rust@sha256:bb4c85481f98f1f00a38f1bf4f3d15451e61b55f7038b74a600994d630d21750 \
-  bash -lc 'source /home/esp/export-esp.sh && cargo build --release --locked'
+# from the repository root
+docker build -t learning-projects-devcontainer:local .devcontainer
+docker run --rm -v "$PWD/projects/hello_world":/project -w /project \
+  learning-projects-devcontainer:local bash -lc 'cargo build --release --locked'
 ```
 
-The first build takes several minutes because of the ESP-IDF install. Later builds reuse
+From VS Code, `Dev Containers: Reopen in Container` then `cargo build --release --locked` in the
+project directory does the same.
+
+The first build takes about eleven minutes because of the ESP-IDF install. Later builds reuse
 `.embuild/`.
 
 ## Flash
@@ -51,9 +56,9 @@ The first build takes several minutes because of the ESP-IDF install. Later buil
 Over USB from the same container, with the board attached:
 
 ```bash
-docker run --rm -v "$PWD":/project -w /project --device=/dev/ttyUSB0 \
-  espressif/idf-rust@sha256:bb4c85481f98f1f00a38f1bf4f3d15451e61b55f7038b74a600994d630d21750 \
-  bash -lc 'source /home/esp/export-esp.sh && espflash flash --monitor target/riscv32imc-esp-espidf/release/hello_world'
+docker run --rm -v "$PWD/projects/hello_world":/project -w /project --device=/dev/ttyUSB0 \
+  learning-projects-devcontainer:local \
+  bash -lc 'espflash flash --monitor target/riscv32imc-esp-espidf/release/hello_world'
 ```
 
 ## Release image
@@ -82,22 +87,22 @@ esp-emu --chip esp32c3 --firmware hello_world-esp32c3.bin --timeout 60s --exit-o
 
 ## Building for another ESP32 chip
 
-Nothing in `src/main.rs` is chip-specific. Retargeting means changing three files and one flag:
-`target` and `MCU` in `.cargo/config.toml`, `channel` in `rust-toolchain.toml`, the container tag,
-and the `--chip` argument you merge and flash with.
+Nothing in `src/main.rs` is chip-specific, and the devcontainer already carries the toolchain for
+every chip. Retargeting means changing two files and one flag: `target` and `MCU` in
+`.cargo/config.toml`, `channel` in `rust-toolchain.toml`, and the `--chip` argument you merge and
+flash with.
 
-| MCU | Container tag | Cargo target | Toolchain channel | esp-emulator |
-| --- | --- | --- | --- | --- |
-| `esp32` | `espressif/idf-rust:esp32_1.95.0.0` | `xtensa-esp32-espidf` | `esp` | no |
-| `esp32s2` | `espressif/idf-rust:esp32s2_1.95.0.0` | `xtensa-esp32s2-espidf` | `esp` | no |
-| `esp32s3` | `espressif/idf-rust:esp32s3_1.95.0.0` | `xtensa-esp32s3-espidf` | `esp` | yes |
-| `esp32c2` | `espressif/idf-rust:esp32c2_1.95.0.0` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | no |
-| `esp32c3` | `espressif/idf-rust:esp32c3_1.95.0.0` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
-| `esp32c6` | `espressif/idf-rust:esp32c6_1.95.0.0` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
-| `esp32h2` | `espressif/idf-rust:esp32h2_1.95.0.0` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
-
-ESP32-C5 and ESP32-P4 have no per-chip image. Use `espressif/idf-rust:all_1.95.0.0` with
-`riscv32imac-esp-espidf` and `riscv32imafc-esp-espidf` respectively.
+| MCU | Cargo target | Toolchain channel | esp-emulator |
+| --- | --- | --- | --- |
+| `esp32` | `xtensa-esp32-espidf` | `esp` | no |
+| `esp32s2` | `xtensa-esp32s2-espidf` | `esp` | no |
+| `esp32s3` | `xtensa-esp32s3-espidf` | `esp` | yes |
+| `esp32c2` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | no |
+| `esp32c3` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32c5` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32c6` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32h2` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32p4` | `riscv32imafc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
 
 ESP-IDF installs the new chip's toolchain into `.embuild/` on the next build, so a retarget pays
 that install once. Anything the chip needs configured beyond IDF's defaults goes in
