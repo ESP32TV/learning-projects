@@ -4,10 +4,9 @@ build_*/
 sdkconfig
 sdkconfig.old
 
-# ESP-IDF component manager output — reconstructed by every build from the
-# project's idf_component.yml manifests, not a pin
+# ESP-IDF component manager output — the dependencies are pinned by each project's
+# committed dependencies.lock, which is NOT ignored; this is only the extracted tree
 managed_components/
-dependencies.lock
 
 # idf.py / idf-ci build reports
 build_summary_*.xml

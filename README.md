@@ -73,6 +73,22 @@ monitor`, or `espflash flash --monitor <image>`) or with `esptool` from the host
    ESP-IDF version, and the exact build and flash commands.
 4. Add a row to the table above, including the ESP-IDF version.
 
+## Releases
+
+Each project releases its own binaries. They are built by GitHub Actions on a tag — never
+uploaded from a developer machine.
+
+- **Tag:** `<project>/v<major>.<minor>.<patch>` — e.g. `tinyml-demo/v1.2.3`. The tag names the
+  project, so a release carries that project's images and nothing else.
+- **Assets:** the images the build produces, each suffixed with the devkit, plus a `SHA256SUMS`
+  file for that build.
+- **Provenance:** the build uses the container tag recorded in the project's `README.md`, and the
+  project's committed `dependencies.lock`. Commit the lockfile — it is what keeps the component
+  set of a release equal to the tested one.
+- **Not byte-identical:** ESP-IDF embeds build metadata (compile time, ELF digest) in the image,
+  so two builds of the same sources differ. `SHA256SUMS` identifies a build; it is not a rebuild
+  check.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
