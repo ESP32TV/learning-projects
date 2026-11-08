@@ -1,0 +1,7 @@
+{
+  "language": "rust",
+  "app": "hello_world",
+  "chip": "esp32c3",
+  "rust_target": "riscv32imc-esp-espidf",
+  "emulator": true
+}

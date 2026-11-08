@@ -125,10 +125,20 @@ developer machine.
 
 - **Tag:** `<project>/v<major>.<minor>.<patch>`, for example `tinyml-demo/v1.2.3`. The tag names the
   project, so a release carries that project's images only.
-- **Assets:** the images the build produces, each suffixed with the devkit, plus a `SHA256SUMS` file
-  for that build.
-- **Provenance:** the build uses the container tag recorded in the project's `README.md` and the
-  versions pinned in the project's committed `idf_component.yml` manifests. Anything the component
+- **One workflow:** `.github/workflows/release.yml` serves every project. It takes the project from
+  the tag, or from the `project` input of a manual run, and reads the build facts from that project's
+  `ci.json`: `language`, `app`, `chip`, `rust_target`, and `emulator`. A project without the file
+  fails the run with an error that names the file, so the workflow is never edited per project.
+- **Manual run:** Actions, `release`, `Run workflow`, `project: <directory name>`. It builds and runs
+  the same checks and stops before publishing.
+- **Assets:** the images the build produces, each suffixed with the devkit or the chip, plus a
+  `SHA256SUMS` file for that build.
+- **Boot check:** a project that declares `emulator: true` is booted in
+  [esp-emulator](https://github.com/espressif/esp-emulator) after it builds, and the release does not
+  publish unless the image produces the expected console output.
+- **Provenance:** the build uses the repository devcontainer, whose base image is pinned by digest in
+  `.devcontainer/Dockerfile`, and the versions each project pins: `Cargo.lock` for Rust, the
+  committed `idf_component.yml` manifests for C/C++. Anything the component
   manager generates (`managed_components/`, `dependencies.lock`) is build output: it is not
   committed, and it is reproducible from the config files a clean checkout already carries.
 - **Builds are not byte-identical:** ESP-IDF embeds build metadata (compile time, ELF digest) in the
