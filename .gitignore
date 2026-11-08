@@ -1,0 +1,20 @@
+# ESP-IDF build output
+build/
+build_*/
+sdkconfig
+sdkconfig.old
+
+# ESP-IDF component manager output — reconstructed by every build from the
+# project's idf_component.yml manifests, not a pin
+managed_components/
+dependencies.lock
+
+# idf.py / idf-ci build reports
+build_summary_*.xml
+app_info_*.txt
+size_info_*.txt
+
+# pytest-embedded
+.pytest_cache/
+pytest_embedded_log/
+__pycache__/
