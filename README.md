@@ -29,7 +29,7 @@ the rest of this repository.
 
 | Project | Summary | SoC | Devkit | ESP-IDF |
 | --- | --- | --- | --- | --- |
-| _none yet_ | | | | |
+| [`hello_world`](projects/hello_world) | Rust greeting that prints its crate version, its chip target and the ESP-IDF it was built against, released as one merged flash image | ESP32-C3 | ESP32-C3 devkit | v6.1 |
 
 ## Requirements
 

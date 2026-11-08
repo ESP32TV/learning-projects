@@ -1,0 +1,182 @@
+name: release
+
+# Builds the example and, on a hello_world/v* tag, publishes the merged image with
+# its checksums. workflow_dispatch runs the same build and the same emulator boot
+# check without publishing, which is the manual test path.
+#
+# The job runs on ubuntu-latest and calls the toolchain through docker run: the
+# official image ships no Node, so a job declared with `container:` would fail at
+# actions/checkout.
+
+on:
+  push:
+    tags: ['hello_world/v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Pinned by digest. `espressif/idf-rust:esp32c3_1.95.0.0` is the tag a human
+  # reads; this digest is the image the tested build actually used.
+  IDF_RUST_IMAGE: espressif/idf-rust@sha256:bb4c85481f98f1f00a38f1bf4f3d15451e61b55f7038b74a600994d630d21750
+  ESP_EMU_VERSION: 0.51.0
+  PROJECT_DIR: projects/hello_world
+  APP: hello_world
+  CHIP: esp32c3
+  RUST_TARGET: riscv32imc-esp-espidf
+
+jobs:
+  build:
+    name: build the merged image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version lives in two places: Cargo.toml, which the example prints, and
+      # sdkconfig.defaults, which the IDF application descriptor prints. A release
+      # whose descriptor disagrees with its crate would advertise two versions.
+      - name: Check the crate and descriptor versions agree
+        run: |
+          set -euo pipefail
+          crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/Cargo.toml" | head -1)"
+          descriptor_version="$(sed -n 's/^CONFIG_APP_PROJECT_VER="\(.*\)"/\1/p' "$PROJECT_DIR/sdkconfig.defaults" | head -1)"
+          echo "crate: $crate_version, application descriptor: $descriptor_version"
+          if [ "$crate_version" != "$descriptor_version" ]; then
+            echo "::error file=$PROJECT_DIR/sdkconfig.defaults::CONFIG_APP_PROJECT_VER is '$descriptor_version' but Cargo.toml says '$crate_version'"
+            exit 1
+          fi
+
+      # A tag run names a release, so the crate version has to agree with the tag.
+      # The binary prints CARGO_PKG_VERSION, so a mismatch would ship an image that
+      # claims a version the release is not.
+      - name: Check the tag against the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#*/v}"
+          crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/Cargo.toml" | head -1)"
+          echo "tag: $GITHUB_REF_NAME, tag version: $tag_version, crate version: $crate_version"
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "::error file=$PROJECT_DIR/Cargo.toml::crate version is $crate_version but the tag asks for $tag_version"
+            exit 1
+          fi
+
+      # esp-idf-sys installs ESP-IDF and its host tools into .embuild on the first
+      # build. Caching it is the difference between a cold run and a warm one.
+      - name: Restore the ESP-IDF install
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PROJECT_DIR }}/.embuild
+          key: embuild-${{ runner.os }}-${{ hashFiles('projects/hello_world/Cargo.lock') }}
+          restore-keys: embuild-${{ runner.os }}-
+
+      - name: Pull the pinned toolchain
+        run: docker pull "$IDF_RUST_IMAGE"
+
+      - name: Build and merge
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/$PROJECT_DIR":/project -w /project \
+            -e USER=esp -e APP="$APP" -e CHIP="$CHIP" -e RUST_TARGET="$RUST_TARGET" \
+            "$IDF_RUST_IMAGE" bash -lc '
+              set -e
+              source /home/esp/export-esp.sh
+              cargo build --release --locked
+              espflash save-image --chip "$CHIP" --merge --skip-padding \
+                "target/$RUST_TARGET/release/$APP" "$APP-$CHIP.bin"
+            '
+
+      # A merge that silently produced an app-only file would still flash and still
+      # fail to boot. The ESP image magic at offset 0 and a size past the app offset
+      # catch that here, before anything is published.
+      - name: Check the merged image boots
+        run: |
+          set -euo pipefail
+          image="$PROJECT_DIR/$APP-$CHIP.bin"
+          ls -l "$image"
+          magic="$(od -An -tx1 -N1 "$image" | tr -d ' \n')"
+          if [ "$magic" != "e9" ]; then
+            echo "::error::$image does not start with the ESP image magic (got $magic)"
+            exit 1
+          fi
+          size="$(stat -c%s "$image")"
+          if [ "$size" -le 65536 ]; then
+            echo "::error::$image is $size bytes, too small to hold bootloader, partition table and application"
+            exit 1
+          fi
+          echo "$image is $size bytes and starts with the ESP image magic"
+
+      - name: Write the checksums
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          sha256sum "$APP-$CHIP.bin" > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-${{ env.CHIP }}
+          path: |
+            projects/hello_world/hello_world-esp32c3.bin
+            projects/hello_world/SHA256SUMS
+
+  emulate:
+    name: boot the merged image in esp-emulator
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hello_world-esp32c3
+          path: dist
+
+      - name: Install esp-emulator
+        run: |
+          set -euo pipefail
+          base="https://github.com/espressif/esp-emulator/releases/download/v${ESP_EMU_VERSION}"
+          tarball="esp-emu-${ESP_EMU_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "$base/$tarball"
+          curl -fsSLO "$base/SHA256SUMS"
+          grep "$tarball" SHA256SUMS | sha256sum -c -
+          tar xf "$tarball"
+          echo "$RUNNER_TEMP/esp-emu-${ESP_EMU_VERSION}-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+
+      - name: Boot it
+        run: |
+          set -euo pipefail
+          esp-emu --chip "$CHIP" --firmware "dist/$APP-$CHIP.bin" \
+            --timeout 60s --exit-on 'Hello, world!'
+
+  release:
+    name: publish the release
+    needs: [build, emulate]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hello_world-esp32c3
+          path: dist
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/hello_world-esp32c3.bin
+            dist/SHA256SUMS
+          body: |
+            `hello_world-esp32c3.bin` is a merged flash image for the ESP32-C3: it contains the
+            bootloader, the partition table and the application, and is written at `0x0`.
+
+            ```
+            curl -LO ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/hello_world-esp32c3.bin
+            sha256sum -c SHA256SUMS
+            esptool --chip esp32c3 -p /dev/ttyUSB0 -b 460800 write-flash 0x0 hello_world-esp32c3.bin
+            ```
+
+            `SHA256SUMS` identifies this build. ESP-IDF embeds build metadata in the image, so a
+            rebuild from the same sources is functionally identical, not byte-identical.
