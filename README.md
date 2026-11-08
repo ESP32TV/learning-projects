@@ -42,6 +42,27 @@ the rest of this repository.
 Each project's `README.md` records the container tag it is built and tested against, and the devkit
 it targets.
 
+## Local development in a container
+
+The repository ships one development container in `.devcontainer/`, so a clone needs nothing
+installed on the host:
+
+1. Open the repository folder in VS Code.
+2. Run `Dev Containers: Reopen in Container`.
+3. Build a project from the integrated terminal, with the command in that project's `README.md`.
+
+The container carries the Rust toolchains and `espflash` for every current ESP32 chip. ESP-IDF is
+not baked into it: each project fetches the IDF version pinned in its own `.cargo/config.toml` into
+its `.embuild/` directory on the first build, which is what allows two projects to sit on different
+IDF versions.
+
+A project gets its own `.devcontainer/` only when the shared one cannot serve it, for example a
+C/C++ example that needs an IDF tree on `PATH`, or a project pinned to a toolchain the shared image
+does not carry. The shared container stays the default for everything else.
+
+The container starts with device cgroup rules for `ttyUSB` and `ttyACM`, so a board plugged into the
+host appears at `/dev/ttyUSB0` or `/dev/ttyACM0` inside without restarting the container.
+
 ## Building an example
 
 C/C++:
