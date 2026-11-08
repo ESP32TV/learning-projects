@@ -25,7 +25,8 @@ I (45) hello_world: Hello, world!
 | Rust crates | `esp-idf-svc` 0.53.0 and 187 more | `Cargo.lock` |
 
 `esp-idf-sys` clones ESP-IDF at the pinned tag and installs its host tools into `.embuild/` on the
-first build. That directory holds about 2.8 GB and is not committed.
+first build. That directory holds about 7 GB, it is not committed, and it is what the first build
+spends its time on.
 
 The version appears twice: `version` in `Cargo.toml`, which the example prints, and
 `CONFIG_APP_PROJECT_VER` in `sdkconfig.defaults`, which the ESP-IDF application descriptor prints as
