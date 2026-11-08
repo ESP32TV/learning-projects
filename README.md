@@ -107,9 +107,10 @@ uploaded from a developer machine.
   project, so a release carries that project's images and nothing else.
 - **Assets:** the images the build produces, each suffixed with the devkit, plus a `SHA256SUMS`
   file for that build.
-- **Provenance:** the build uses the container tag recorded in the project's `README.md`, and the
-  project's committed `dependencies.lock`. Commit the lockfile — it is what keeps the component
-  set of a release equal to the tested one.
+- **Provenance:** the build uses the container tag recorded in the project's `README.md` and the
+  versions pinned in the project's committed `idf_component.yml` manifests. Anything the component
+  manager generates — `managed_components/`, `dependencies.lock` — is build output: not committed,
+  and reproducible from the config files a clean checkout already carries.
 - **Not byte-identical:** ESP-IDF embeds build metadata (compile time, ELF digest) in the image,
   so two builds of the same sources differ. `SHA256SUMS` identifies a build; it is not a rebuild
   check.
