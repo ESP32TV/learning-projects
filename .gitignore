@@ -4,7 +4,7 @@ build_*/
 sdkconfig
 sdkconfig.old
 
-# ESP-IDF component manager output — generated on every configure from the committed
+# ESP-IDF component manager output: generated on every configure from the committed
 # idf_component.yml manifests, so it is build output, not a pin. Same for sdkconfig.
 managed_components/
 dependencies.lock
