@@ -79,6 +79,34 @@ what the release workflow checks before publishing:
 esp-emu --chip esp32c3 --firmware hello_world-esp32c3.bin --timeout 60s --exit-on 'Hello, world!'
 ```
 
+## Building for another ESP32 chip
+
+Nothing in `src/main.rs` is chip-specific. Retargeting means changing three files and one flag:
+`target` and `MCU` in `.cargo/config.toml`, `channel` in `rust-toolchain.toml`, the container tag,
+and the `--chip` argument you merge and flash with.
+
+| MCU | Container tag | Cargo target | Toolchain channel | esp-emulator |
+| --- | --- | --- | --- | --- |
+| `esp32` | `espressif/idf-rust:esp32_1.95.0.0` | `xtensa-esp32-espidf` | `esp` | no |
+| `esp32s2` | `espressif/idf-rust:esp32s2_1.95.0.0` | `xtensa-esp32s2-espidf` | `esp` | no |
+| `esp32s3` | `espressif/idf-rust:esp32s3_1.95.0.0` | `xtensa-esp32s3-espidf` | `esp` | yes |
+| `esp32c2` | `espressif/idf-rust:esp32c2_1.95.0.0` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | no |
+| `esp32c3` | `espressif/idf-rust:esp32c3_1.95.0.0` | `riscv32imc-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32c6` | `espressif/idf-rust:esp32c6_1.95.0.0` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+| `esp32h2` | `espressif/idf-rust:esp32h2_1.95.0.0` | `riscv32imac-esp-espidf` | `nightly-2026-04-26` + `rust-src` | yes |
+
+ESP32-C5 and ESP32-P4 have no per-chip image. Use `espressif/idf-rust:all_1.95.0.0` with
+`riscv32imac-esp-espidf` and `riscv32imafc-esp-espidf` respectively.
+
+ESP-IDF installs the new chip's toolchain into `.embuild/` on the next build, so a retarget pays
+that install once. Anything the chip needs configured beyond IDF's defaults goes in
+`sdkconfig.defaults`.
+
+The release workflow targets the ESP32-C3 only: its `CHIP` and `RUST_TARGET` environment variables,
+the image name and the emulator boot check are set for that chip in
+`.github/workflows/release.yml`. ESP32 and ESP32-S2 cannot be booted in esp-emulator, so a retarget
+to those needs a board.
+
 ## Layout
 
 | File | Purpose |
