@@ -9,7 +9,18 @@
     "paths": [".embuild"],
     "key_files": ["Cargo.lock"]
   },
-  "version_command": "sed -n 's/^version = \"\\(.*\\)\"/\\1/p' Cargo.toml | head -1",
+  "version": {
+    "files": [
+      {
+        "path": "Cargo.toml",
+        "pattern": "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"$"
+      },
+      {
+        "path": "sdkconfig.defaults",
+        "pattern": "^CONFIG_APP_PROJECT_VER=\"([0-9]+\\.[0-9]+\\.[0-9]+)\"$"
+      }
+    ]
+  },
   "artifacts": ["hello_world-esp32c3.bin"],
   "emulator": {
     "chip": "esp32c3",

@@ -123,6 +123,6 @@ to those needs a board.
 | `rust-toolchain.toml` | Xtensa and RISC-V need specific toolchains; this pins `nightly-2026-04-26` with `rust-src` for `build-std` |
 | `.cargo/config.toml` | target, `MCU`, `ESP_IDF_VERSION`, and `ESP_IDF_TOOLS_INSTALL_DIR=workspace` |
 | `sdkconfig.defaults` | stack sizes the Rust main task needs, and the version for the IDF application descriptor |
-| `ci.json` | release metadata: container, build environment, cache, version command, artifacts, emulator chip |
+| `ci.json` | release metadata: container, build environment, cache, version files, artifacts, emulator chip |
 | `ci.sh` | the build steps. CI runs this file inside the container above, and it is the same command a developer runs |
 | `src/main.rs` | the example |
