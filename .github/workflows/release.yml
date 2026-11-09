@@ -218,6 +218,23 @@ jobs:
           key: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ hashFiles(needs.prepare.outputs.cache_key) }}
           restore-keys: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-
 
+      # A hosted runner checks the repository out as its own user, while the
+      # container runs as the user baked into its image, so the mount is not
+      # writable from inside. VS Code hides this by remapping the remote user to the
+      # local one, which is why the same definition works on a development machine.
+      # The uid is read from the image, not assumed to be 1000: a project that
+      # supplies its own container may run as a different user.
+      - name: Give the project directory to the container's user
+        env:
+          PROJECT_DIR: ${{ needs.prepare.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          uid="$(docker run --rm --entrypoint id "${IMAGE}" -u)"
+          gid="$(docker run --rm --entrypoint id "${IMAGE}" -g)"
+          user_name="$(docker run --rm --entrypoint id "${IMAGE}" -un)"
+          echo "the container runs as ${user_name} (${uid}:${gid}); handing it ${PROJECT_DIR}"
+          sudo chown -R "${uid}:${gid}" "${PROJECT_DIR}"
+
       # The project's own build steps, in the project's own container.
       - name: Build
         env:
