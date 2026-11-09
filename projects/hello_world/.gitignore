@@ -4,3 +4,7 @@
 /.embuild
 /sdkconfig
 /.vscode
+
+# Written by ci.sh and by the release workflow, never committed.
+/*.bin
+/SHA256SUMS

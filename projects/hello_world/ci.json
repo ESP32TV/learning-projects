@@ -1,7 +1,18 @@
 {
-  "language": "rust",
-  "app": "hello_world",
-  "chip": "esp32c3",
-  "rust_target": "riscv32imc-esp-espidf",
-  "emulator": true
+  "container": "devcontainer",
+  "env": {
+    "APP": "hello_world",
+    "CHIP": "esp32c3",
+    "RUST_TARGET": "riscv32imc-esp-espidf"
+  },
+  "cache": {
+    "paths": [".embuild"],
+    "key_files": ["Cargo.lock"]
+  },
+  "version_command": "sed -n 's/^version = \"\\(.*\\)\"/\\1/p' Cargo.toml | head -1",
+  "artifacts": ["hello_world-esp32c3.bin"],
+  "emulator": {
+    "chip": "esp32c3",
+    "exit_on": "Hello, world!"
+  }
 }

@@ -1,21 +1,31 @@
 name: release
 
-# One workflow for every project in the repository.
+# One workflow for every project in the repository, whatever language it is written
+# in. It holds no knowledge of Cargo, idf.py, espflash or sdkconfig: those live in
+# the project's own `ci.sh`.
 #
-# The project is named by the tag (`hello_world/v0.1.0`) or by the `project` input
-# of a manual run, and everything else comes from that project's own
-# `projects/<project>/ci.json`: the application name, the chip, the Rust target and
-# whether esp-emulator can boot the result. Adding a project means adding that file,
-# its README row and its source, with no edit here.
+# The project is named by the tag (`hello_world/v0.1.0`) or by the `project` input of
+# a manual run. Everything else comes from `projects/<project>/ci.json`:
 #
-# On a tag, the run builds the merged image, boots it in esp-emulator when the
-# project supports it, and publishes the release. A manual run does the same build
-# and the same emulator check and stops before publishing.
+#   container       "devcontainer" for the repository container, or an image
+#                   reference such as "espressif/idf@sha256:...". A C/C++ project
+#                   names its own IDF image, which is why the container is per
+#                   project and not fixed here.
+#   env             variables exported to ci.sh: application name, chip, target
+#   cache           {"paths": [...], "key_files": [...]} to keep build output
+#                   between runs; omitted when the project has nothing to cache
+#   version_command shell that prints the project version, used to compare against
+#                   the tag
+#   artifacts       files ci.sh produces, relative to the project directory
+#   emulator        {"chip": ..., "exit_on": ...} when esp-emulator can boot the
+#                   result; omitted for chips or projects it cannot run
 #
-# Every step runs inside the repository's own devcontainer image, built here from
-# .devcontainer/Dockerfile. That is the definition a developer gets from
-# "Dev Containers: Reopen in Container", so CI and a local build share one image.
-# The base image digest is pinned inside the Dockerfile, not here.
+# `ci.sh` runs inside that container with the project directory as the working
+# directory. It is the same command a developer runs, so a green CI run and a local
+# run come from one recipe.
+#
+# On a tag the run builds, boots the image in esp-emulator when the project declares
+# it, and publishes. A manual run does the same and stops before publishing.
 
 on:
   push:
@@ -42,11 +52,13 @@ jobs:
       project: ${{ steps.meta.outputs.project }}
       project_dir: ${{ steps.meta.outputs.project_dir }}
       version: ${{ steps.meta.outputs.version }}
-      app: ${{ steps.meta.outputs.app }}
-      chip: ${{ steps.meta.outputs.chip }}
-      rust_target: ${{ steps.meta.outputs.rust_target }}
-      language: ${{ steps.meta.outputs.language }}
-      emulator: ${{ steps.meta.outputs.emulator }}
+      container: ${{ steps.meta.outputs.container }}
+      build_env: ${{ steps.meta.outputs.build_env }}
+      artifacts: ${{ steps.meta.outputs.artifacts }}
+      cache_paths: ${{ steps.meta.outputs.cache_paths }}
+      cache_key: ${{ steps.meta.outputs.cache_key }}
+      emulator_chip: ${{ steps.meta.outputs.emulator_chip }}
+      emulator_exit_on: ${{ steps.meta.outputs.emulator_exit_on }}
 
     steps:
       - uses: actions/checkout@v4
@@ -60,45 +72,73 @@ jobs:
 
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             project="${GITHUB_REF_NAME%%/*}"
-            version="${GITHUB_REF_NAME#*/v}"
+            tag_version="${GITHUB_REF_NAME#*/v}"
           else
             project="${DISPATCH_PROJECT}"
-            version=""
+            tag_version=""
           fi
 
-          if [ ! -d "projects/${project}" ]; then
-            echo "::error::no directory projects/${project}. Name the project in the tag or the workflow_dispatch input."
+          project_dir="projects/${project}"
+          if [ ! -d "${project_dir}" ]; then
+            echo "::error::no directory ${project_dir}. Name the project in the tag or in the workflow_dispatch input."
             exit 1
           fi
 
-          metadata="projects/${project}/ci.json"
+          metadata="${project_dir}/ci.json"
           if [ ! -f "${metadata}" ]; then
             echo "::error file=${metadata}::a project needs ci.json so the release workflow knows what to build"
             exit 1
           fi
-
-          app="$(jq -r '.app' "${metadata}")"
-          chip="$(jq -r '.chip' "${metadata}")"
-          rust_target="$(jq -r '.rust_target' "${metadata}")"
-          language="$(jq -r '.language' "${metadata}")"
-          emulator="$(jq -r '.emulator // false' "${metadata}")"
-
-          # A manual run has no tag to take a version from, so it uses the crate's.
-          if [ -z "${version}" ] && [ "${language}" = "rust" ]; then
-            version="$(sed -n 's/^version = "\(.*\)"/\1/p' "projects/${project}/Cargo.toml" | head -1)"
+          if [ ! -x "${project_dir}/ci.sh" ]; then
+            echo "::error file=${project_dir}/ci.sh::a project needs an executable ci.sh holding its build steps"
+            exit 1
           fi
 
-          echo "project=${project} version=${version} app=${app} chip=${chip} language=${language} emulator=${emulator}"
+          container="$(jq -r '.container' "${metadata}")"
+          artifacts="$(jq -c '.artifacts' "${metadata}")"
+          cache_paths="$(jq -c '.cache.paths // []' "${metadata}")"
+          cache_key="$(jq -r '(.cache.key_files // []) | map("'"${project_dir}"'/\(.)") | join(",")' "${metadata}")"
+          emulator_chip="$(jq -r '.emulator.chip // ""' "${metadata}")"
+          emulator_exit_on="$(jq -r '.emulator.exit_on // ""' "${metadata}")"
+
+          if [ "${artifacts}" = "[]" ] || [ "${artifacts}" = "null" ]; then
+            echo "::error file=${metadata}::artifacts lists nothing, so a release would carry no files"
+            exit 1
+          fi
+
+          # The project states its own version, whatever language it is written in.
+          version_command="$(jq -r '.version_command // ""' "${metadata}")"
+          if [ -z "${version_command}" ]; then
+            echo "::error file=${metadata}::version_command is required"
+            exit 1
+          fi
+          version="$( cd "${project_dir}" && sh -c "${version_command}" | tr -d '[:space:]' )"
+          if [ -z "${version}" ]; then
+            echo "::error file=${metadata}::version_command printed nothing"
+            exit 1
+          fi
+
+          # A tag names a release, so the project's own version has to agree with it.
+          if [ -n "${tag_version}" ] && [ "${tag_version}" != "${version}" ]; then
+            echo "::error file=${metadata}::the project is version ${version} but the tag asks for ${tag_version}"
+            exit 1
+          fi
+
+          echo "project=${project} version=${version} container=${container}"
+          echo "artifacts=${artifacts}"
+          echo "emulator chip=${emulator_chip} exit_on=${emulator_exit_on}"
 
           {
             echo "project=${project}"
-            echo "project_dir=projects/${project}"
+            echo "project_dir=${project_dir}"
             echo "version=${version}"
-            echo "app=${app}"
-            echo "chip=${chip}"
-            echo "rust_target=${rust_target}"
-            echo "language=${language}"
-            echo "emulator=${emulator}"
+            echo "container=${container}"
+            echo "build_env=$(jq -c '.env // {}' "${metadata}")"
+            echo "artifacts=${artifacts}"
+            echo "cache_paths=${cache_paths}"
+            echo "cache_key=${cache_key}"
+            echo "emulator_chip=${emulator_chip}"
+            echo "emulator_exit_on=${emulator_exit_on}"
           } >> "${GITHUB_OUTPUT}"
 
   build:
@@ -109,46 +149,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the project is one this workflow builds
-        run: |
-          set -euo pipefail
-          if [ "${{ needs.prepare.outputs.language }}" != "rust" ]; then
-            echo "::error::this workflow builds Rust projects; projects/${{ needs.prepare.outputs.project }} declares language '${{ needs.prepare.outputs.language }}'"
-            exit 1
-          fi
-
-      # The version lives in two places: Cargo.toml, which the example prints, and
-      # sdkconfig.defaults, which the IDF application descriptor prints. A release
-      # whose descriptor disagrees with its crate would advertise two versions.
-      - name: Check the crate and descriptor versions agree
-        run: |
-          set -euo pipefail
-          crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "${{ needs.prepare.outputs.project_dir }}/Cargo.toml" | head -1)"
-          descriptor_version="$(sed -n 's/^CONFIG_APP_PROJECT_VER="\(.*\)"/\1/p' "${{ needs.prepare.outputs.project_dir }}/sdkconfig.defaults" | head -1)"
-          echo "crate: ${crate_version}, application descriptor: ${descriptor_version}"
-          if [ "${crate_version}" != "${descriptor_version}" ]; then
-            echo "::error file=${{ needs.prepare.outputs.project_dir }}/sdkconfig.defaults::CONFIG_APP_PROJECT_VER is '${descriptor_version}' but Cargo.toml says '${crate_version}'"
-            exit 1
-          fi
-
-      # A tag run names a release, so the crate version has to agree with the tag.
-      - name: Check the tag against the crate version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          set -euo pipefail
-          tag_version="${{ needs.prepare.outputs.version }}"
-          crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "${{ needs.prepare.outputs.project_dir }}/Cargo.toml" | head -1)"
-          echo "tag version: ${tag_version}, crate version: ${crate_version}"
-          if [ "${tag_version}" != "${crate_version}" ]; then
-            echo "::error file=${{ needs.prepare.outputs.project_dir }}/Cargo.toml::crate version is ${crate_version} but the tag asks for ${tag_version}"
-            exit 1
-          fi
-
+      # Two container sources: the repository devcontainer, or an image the project
+      # names for itself. A C/C++ project names its own IDF image, because the IDF
+      # version is per project.
       - uses: docker/setup-buildx-action@v3
+        if: needs.prepare.outputs.container == 'devcontainer'
 
-      # Built from the committed definition, with the layer cache kept between runs
-      # so the Debian package layer is not rebuilt every time.
       - name: Build the devcontainer image
+        if: needs.prepare.outputs.container == 'devcontainer'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -158,91 +166,103 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Show what the container carries
-        run: |
-          docker run --rm "$DEVCONTAINER_TAG" bash -lc 'rustc --version; cargo --version; espflash --version'
+      - name: Pull the project's own container image
+        if: needs.prepare.outputs.container != 'devcontainer'
+        env:
+          IMAGE: ${{ needs.prepare.outputs.container }}
+        run: docker pull "${IMAGE}"
 
-      # esp-idf-sys installs ESP-IDF and its host tools into .embuild on the first
-      # build. Caching it is the difference between a cold run and a warm one, and
-      # Cargo.lock is the key that changes when the dependency set does.
-      - name: Restore the ESP-IDF install
+      - name: Record the image to run
+        env:
+          CONTAINER: ${{ needs.prepare.outputs.container }}
+        run: |
+          set -euo pipefail
+          if [ "${CONTAINER}" = "devcontainer" ]; then
+            echo "IMAGE=${DEVCONTAINER_TAG}" >> "${GITHUB_ENV}"
+          else
+            echo "IMAGE=${CONTAINER}" >> "${GITHUB_ENV}"
+          fi
+
+      # actions/cache takes a newline separated list, which a job output cannot
+      # carry, so the list is resolved here.
+      - id: cache
+        name: Resolve the cache paths
+        env:
+          PATHS: ${{ needs.prepare.outputs.cache_paths }}
+        run: |
+          set -euo pipefail
+          if [ "${PATHS}" = "[]" ] || [ "${PATHS}" = "null" ]; then
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          {
+            echo "CACHE_PATHS<<EOF"
+            printf '%s' "${PATHS}" | jq -r '.[]'
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
+          echo "enabled=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore the build cache
+        if: steps.cache.outputs.enabled == 'true'
         uses: actions/cache@v4
         with:
-          path: ${{ needs.prepare.outputs.project_dir }}/.embuild
-          key: embuild-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ hashFiles(format('{0}/Cargo.lock', needs.prepare.outputs.project_dir)) }}
-          restore-keys: embuild-${{ runner.os }}-${{ needs.prepare.outputs.project }}-
+          path: ${{ env.CACHE_PATHS }}
+          key: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ hashFiles(needs.prepare.outputs.cache_key) }}
+          restore-keys: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-
 
-      # The same two commands the project README documents for a local build.
-      - name: Build and merge
+      # The project's own build steps, in the project's own container.
+      - name: Build
         env:
           PROJECT_DIR: ${{ needs.prepare.outputs.project_dir }}
-          APP: ${{ needs.prepare.outputs.app }}
-          CHIP: ${{ needs.prepare.outputs.chip }}
-          RUST_TARGET: ${{ needs.prepare.outputs.rust_target }}
+          BUILD_ENV: ${{ needs.prepare.outputs.build_env }}
         run: |
           set -euo pipefail
+          env_args=()
+          while IFS= read -r line; do
+            [ -n "${line}" ] && env_args+=(-e "${line}")
+          done < <(printf '%s' "${BUILD_ENV}" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
+
           docker run --rm -v "$PWD/${PROJECT_DIR}":/project -w /project \
-            -e APP="${APP}" -e CHIP="${CHIP}" -e RUST_TARGET="${RUST_TARGET}" \
-            "$DEVCONTAINER_TAG" bash -lc '
-              set -e
-              cargo build --release --locked
-              espflash save-image --chip "$CHIP" --merge --skip-padding \
-                "target/$RUST_TARGET/release/$APP" "$APP-$CHIP.bin"
-            '
+            "${env_args[@]}" "${IMAGE}" bash -lc './ci.sh'
 
-      # A merge that silently produced an app-only file would still flash and still
-      # fail to boot. The ESP image magic at offset 0 and a size past the app offset
-      # catch that here, before anything is published.
-      - name: Check the merged image boots
+      # Stage what the release carries, so the checksums, the artifact and the
+      # release all describe the same file list.
+      - name: Collect the artifacts and their checksums
         env:
           PROJECT_DIR: ${{ needs.prepare.outputs.project_dir }}
-          APP: ${{ needs.prepare.outputs.app }}
-          CHIP: ${{ needs.prepare.outputs.chip }}
+          ARTIFACTS: ${{ needs.prepare.outputs.artifacts }}
         run: |
           set -euo pipefail
-          image="${PROJECT_DIR}/${APP}-${CHIP}.bin"
-          ls -l "${image}"
-          magic="$(od -An -tx1 -N1 "${image}" | tr -d ' \n')"
-          if [ "${magic}" != "e9" ]; then
-            echo "::error::${image} does not start with the ESP image magic (got ${magic})"
-            exit 1
-          fi
-          size="$(stat -c%s "${image}")"
-          if [ "${size}" -le 65536 ]; then
-            echo "::error::${image} is ${size} bytes, too small to hold bootloader, partition table and application"
-            exit 1
-          fi
-          echo "${image} is ${size} bytes and starts with the ESP image magic"
-
-      - name: Write the checksums
-        env:
-          PROJECT_DIR: ${{ needs.prepare.outputs.project_dir }}
-          APP: ${{ needs.prepare.outputs.app }}
-          CHIP: ${{ needs.prepare.outputs.chip }}
-        run: |
-          set -euo pipefail
-          cd "${PROJECT_DIR}"
-          sha256sum "${APP}-${CHIP}.bin" > SHA256SUMS
-          cat SHA256SUMS
+          mkdir -p dist
+          mapfile -t names < <(printf '%s' "${ARTIFACTS}" | jq -r '.[]')
+          for name in "${names[@]}"; do
+            path="${PROJECT_DIR}/${name}"
+            if [ ! -s "${path}" ]; then
+              echo "::error::ci.sh did not produce ${path}, or produced it empty"
+              exit 1
+            fi
+            cp "${path}" dist/
+            ls -l "dist/${name}"
+          done
+          ( cd dist && sha256sum "${names[@]}" > SHA256SUMS && cat SHA256SUMS )
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}
-          path: |
-            ${{ needs.prepare.outputs.project_dir }}/${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}.bin
-            ${{ needs.prepare.outputs.project_dir }}/SHA256SUMS
+          name: ${{ needs.prepare.outputs.project }}-${{ needs.prepare.outputs.version }}
+          path: dist/
+          if-no-files-found: error
 
   emulate:
     name: boot the image in esp-emulator
     needs: [prepare, build]
-    # Only projects whose metadata claims emulator support pay for this job.
-    if: needs.prepare.outputs.emulator == 'true'
+    # Only projects whose metadata names an emulator chip pay for this job.
+    if: needs.prepare.outputs.emulator_chip != ''
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}
+          name: ${{ needs.prepare.outputs.project }}-${{ needs.prepare.outputs.version }}
           path: dist
 
       - name: Install esp-emulator
@@ -259,12 +279,14 @@ jobs:
 
       - name: Boot it
         env:
-          APP: ${{ needs.prepare.outputs.app }}
-          CHIP: ${{ needs.prepare.outputs.chip }}
+          CHIP: ${{ needs.prepare.outputs.emulator_chip }}
+          EXIT_ON: ${{ needs.prepare.outputs.emulator_exit_on }}
+          ARTIFACTS: ${{ needs.prepare.outputs.artifacts }}
         run: |
           set -euo pipefail
-          esp-emu --chip "${CHIP}" --firmware "dist/${APP}-${CHIP}.bin" \
-            --timeout 60s --exit-on 'Hello, world!'
+          firmware="$(printf '%s' "${ARTIFACTS}" | jq -r '.[0]')"
+          esp-emu --chip "${CHIP}" --firmware "dist/${firmware}" \
+            --timeout 60s --exit-on "${EXIT_ON}"
 
   release:
     name: publish the release
@@ -280,27 +302,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}
+          name: ${{ needs.prepare.outputs.project }}-${{ needs.prepare.outputs.version }}
           path: dist
 
       - name: Publish
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          files: |
-            dist/${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}.bin
-            dist/SHA256SUMS
+          files: dist/*
           body: |
-            `${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}.bin` is a merged flash
-            image for the ${{ needs.prepare.outputs.chip }}: bootloader, partition table and
-            application, written at `0x0`.
+            Project `${{ needs.prepare.outputs.project }}` version
+            `${{ needs.prepare.outputs.version }}`, built from
+            `${{ needs.prepare.outputs.project_dir }}` by the `${{ github.workflow }}` workflow.
 
-            ```
-            curl -LO ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}.bin
-            sha256sum -c SHA256SUMS
-            esptool --chip ${{ needs.prepare.outputs.chip }} -p /dev/ttyUSB0 -b 460800 write-flash 0x0 ${{ needs.prepare.outputs.app }}-${{ needs.prepare.outputs.chip }}.bin
-            ```
+            Attached: ${{ needs.prepare.outputs.artifacts }} and `SHA256SUMS`.
 
-            Built from `${{ needs.prepare.outputs.project_dir }}` by the `${{ github.workflow }}`
-            workflow. `SHA256SUMS` identifies this build; ESP-IDF embeds build metadata in the image,
-            so a rebuild from the same sources is functionally identical, not byte-identical.
+            `SHA256SUMS` identifies this build. ESP-IDF embeds build metadata in the image, so a
+            rebuild from the same sources is functionally identical, not byte-identical.

@@ -125,15 +125,18 @@ developer machine.
 
 - **Tag:** `<project>/v<major>.<minor>.<patch>`, for example `tinyml-demo/v1.2.3`. The tag names the
   project, so a release carries that project's images only.
-- **One workflow:** `.github/workflows/release.yml` serves every project. It takes the project from
-  the tag, or from the `project` input of a manual run, and reads the build facts from that project's
-  `ci.json`: `language`, `app`, `chip`, `rust_target`, and `emulator`. A project without the file
-  fails the run with an error that names the file, so the workflow is never edited per project.
+- **One workflow, with no build knowledge in it:** `.github/workflows/release.yml` serves every
+  project. It takes the project from the tag, or from the `project` input of a manual run, and reads
+  that project's `ci.json`: which container to use (the repository devcontainer, or an image such as
+  an IDF release), the environment for the build, what to cache, the command that prints the version,
+  the files the build produces, and whether esp-emulator can boot the result. The build steps are the
+  project's own `ci.sh`. A C/C++ project therefore names its own IDF image and runs `idf.py` there
+  without an edit to the workflow.
 - **Manual run:** Actions, `release`, `Run workflow`, `project: <directory name>`. It builds and runs
   the same checks and stops before publishing.
-- **Assets:** the images the build produces, each suffixed with the devkit or the chip, plus a
-  `SHA256SUMS` file for that build.
-- **Boot check:** a project that declares `emulator: true` is booted in
+- **Assets:** the files `ci.json` declares, each suffixed with the devkit or the chip, plus a
+  `SHA256SUMS` file covering them.
+- **Boot check:** a project whose `ci.json` names an emulator chip is booted in
   [esp-emulator](https://github.com/espressif/esp-emulator) after it builds, and the release does not
   publish unless the image produces the expected console output.
 - **Provenance:** the build uses the repository devcontainer, whose base image is pinned by digest in
