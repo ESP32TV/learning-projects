@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       project:
-        description: 'Project directory under projects/, for example hello_world'
+        description: 'Project directory name under projects/, for example hello_world'
         required: true
         type: string
 
@@ -77,6 +77,13 @@ jobs:
             project="${DISPATCH_PROJECT}"
             tag_version=""
           fi
+
+          # A dispatch input arrives as typed, so take the name with or without the
+          # path around it: hello_world, projects/hello_world, ./projects/hello_world
+          # and hello_world/ all mean the same project.
+          project="${project#./}"
+          project="${project#projects/}"
+          project="${project%/}"
 
           project_dir="projects/${project}"
           if [ ! -d "${project_dir}" ]; then
@@ -142,7 +149,8 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
   build:
-    name: build ${{ needs.prepare.outputs.project }}
+    # A job-level name cannot read the needs context, so this stays static.
+    name: build the image
     needs: prepare
     runs-on: ubuntu-latest
 
