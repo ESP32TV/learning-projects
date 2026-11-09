@@ -15,4 +15,4 @@ CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=4096
 # "App version" in the boot log. It must equal `version` in Cargo.toml, which is
 # what the example itself prints; the release workflow fails when the two differ.
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
-CONFIG_APP_PROJECT_VER="0.1.0"
+CONFIG_APP_PROJECT_VER="0.1.1"
