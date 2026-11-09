@@ -127,11 +127,12 @@ developer machine.
   project, so a release carries that project's images only.
 - **One workflow, with no build knowledge in it:** `.github/workflows/release.yml` serves every
   project. It takes the project from the tag, or from the `project` input of a manual run, and reads
-  that project's `ci.json`: which container to use (the repository devcontainer, or an image such as
-  an IDF release), the environment for the build, what to cache, the command that prints the version,
-  the files the build produces, and whether esp-emulator can boot the result. The build steps are the
-  project's own `ci.sh`. A C/C++ project therefore names its own IDF image and runs `idf.py` there
-  without an edit to the workflow.
+  that project's `ci.json`: which container to use (the repository devcontainer, or a project's own
+  `devcontainer.json`), the environment for the build, what to cache, the command that prints the
+  version, the files the build produces, and whether esp-emulator can boot the result. The container
+  is started by the devcontainer CLI, the launcher VS Code uses, and the build steps are the
+  project's own `ci.sh`. A C/C++ project therefore ships a `devcontainer.json` pinned to its IDF image
+  and runs `idf.py` there, without an edit to the workflow.
 - **Manual run:** Actions, `release`, `Run workflow`, `project: <directory name>`. It builds and runs
   the same checks and stops before publishing.
 - **Assets:** the files `ci.json` declares, each suffixed with the devkit or the chip, plus a
