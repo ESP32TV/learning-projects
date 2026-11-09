@@ -140,6 +140,12 @@ developer machine.
 - **Boot check:** a project whose `ci.json` names an emulator chip is booted in
   [esp-emulator](https://github.com/espressif/esp-emulator) after it builds, and the release does not
   publish unless the image produces the expected console output.
+- **Version bump:** `bash tools/release.sh <project> --bump patch` raises the version everywhere
+  `ci.json` lists it under `version.files`. `--bump minor`, `--bump major`, `--set X.Y.Z` and
+  `--dry-run` complete the set. The script refuses a dirty worktree, a version that is not ahead of
+  the current one, and a version whose tag already exists, and it writes files only: the commit, the
+  PR and the tag stay manual, because the tag has to point at the merged commit. The workflow reads
+  the version through the same script (`--print-version`) for its tag gate.
 - **Provenance:** the build uses the repository devcontainer, whose base image is pinned by digest in
   `.devcontainer/Dockerfile`, and the versions each project pins: `Cargo.lock` for Rust, the
   committed `idf_component.yml` manifests for C/C++. Anything the component

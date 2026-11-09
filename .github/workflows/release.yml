@@ -15,8 +15,9 @@ name: release
 #   env             variables exported to ci.sh: application name, chip, target
 #   cache           {"paths": [...], "key_files": [...]} to keep build output
 #                   between runs; omitted when the project has nothing to cache
-#   version_command shell that prints the project version, used to compare against
-#                   the tag
+#   version         {"files": [{"path": ..., "pattern": ...}]}, the places the version
+#                   lives. tools/release.sh reads and writes them, and this workflow
+#                   reads them through that script, so there is one declaration
 #   artifacts       files ci.sh produces, relative to the project directory
 #   emulator        {"chip": ..., "exit_on": ...} when esp-emulator can boot the
 #                   result; omitted for chips or projects it cannot run
@@ -118,15 +119,11 @@ jobs:
             exit 1
           fi
 
-          # The project states its own version, whatever language it is written in.
-          version_command="$(jq -r '.version_command // ""' "${metadata}")"
-          if [ -z "${version_command}" ]; then
-            echo "::error file=${metadata}::version_command is required"
-            exit 1
-          fi
-          version="$( cd "${project_dir}" && sh -c "${version_command}" | tr -d '[:space:]' )"
-          if [ -z "${version}" ]; then
-            echo "::error file=${metadata}::version_command printed nothing"
+          # The version is read through the same script a developer uses to bump it,
+          # so ci.json's version.files block has one reader and one writer. The
+          # script fails when the declared files disagree with each other.
+          if ! version="$(bash tools/release.sh "${project}" --print-version)"; then
+            echo "::error file=${metadata}::tools/release.sh could not read the version from version.files"
             exit 1
           fi
 
