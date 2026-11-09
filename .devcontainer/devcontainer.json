@@ -9,9 +9,6 @@
     "--device-cgroup-rule=c 188:* rmw",
     "--device-cgroup-rule=c 166:* rmw"
   ],
-  "mounts": [
-    "source=learning-projects-cargo-registry,target=/home/esp/.cargo/registry,type=volume"
-  ],
   "customizations": {
     "vscode": {
       "extensions": [
