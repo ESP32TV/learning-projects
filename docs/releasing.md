@@ -68,10 +68,13 @@ gh run list --event push --limit 3
 gh run watch <run-id>
 ```
 
-A release takes about six and a half minutes from the tag push to a downloadable asset. On
-`hello_world/v0.1.1`: `prepare` 4 s, `build` 5 m 51 s, `emulate` 6 s, `release` 12 s, and the asset was
-live 6 m 26 s after the push. `build` is nearly all of that time, and it is a cold build until the
-cache works (see Known limits).
+A release takes about four and a half minutes when the build cache is warm, which is the usual case.
+Measured on `hello_world` with the current workflow: `prepare` 4 s, `build` 1 m 48 s to 2 m 42 s,
+`emulate` 6 s and `release` 12 s.
+
+The first run after one of the files in `cache.key_files` changes is a cold build of about six and a
+half minutes, because the cache key moves with those files. `hello_world/v0.1.1` was released on a cold
+cache and took 6 m 26 s from the tag push to the asset being live.
 
 ## 5. Verify what was published
 
@@ -147,7 +150,9 @@ Each row is a failure this repository has produced, with the fix that landed.
 
 - Pull requests report no checks. The workflow runs on tags and manual dispatches only, so a green PR
   means no conflict, not that the build passed.
-- The build cache does not save, so every run rebuilds from scratch and `build` takes about six
-  minutes. Tracked in #16.
+- Build caches are scoped to the branch or tag that created them. A tag run restores the cache saved on
+  the default branch, and not the cache of another tag or of a feature branch. After a change to the
+  cache configuration, prime `main` with a manual dispatch on the merged commit, or the next release
+  pays for a cold build.
 - The download URL names a version, and there is no per-project "latest" link, because GitHub's
   `releases/latest` is repository-wide. Pick the version explicitly.
