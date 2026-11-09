@@ -120,40 +120,12 @@ device-to-device test is impossible.
 
 ## Releases
 
-Each project releases its own binaries, built by GitHub Actions on a tag. Nothing is uploaded from a
-developer machine.
+Each project releases its own binaries from a tag, built by GitHub Actions from the tagged commit.
+Nothing is uploaded from a developer machine. The tag is `<project>/v<major>.<minor>.<patch>`, for
+example `hello_world/v0.1.1`, and pushing it publishes that project's assets.
 
-- **Tag:** `<project>/v<major>.<minor>.<patch>`, for example `tinyml-demo/v1.2.3`. The tag names the
-  project, so a release carries that project's images only.
-- **One workflow, with no build knowledge in it:** `.github/workflows/release.yml` serves every
-  project. It takes the project from the tag, or from the `project` input of a manual run, and reads
-  that project's `ci.json`: which container to use (the repository devcontainer, or a project's own
-  `devcontainer.json`), the environment for the build, what to cache, the command that prints the
-  version, the files the build produces, and whether esp-emulator can boot the result. The container
-  is started by the devcontainer CLI, the launcher VS Code uses, and the build steps are the
-  project's own `ci.sh`. A C/C++ project therefore ships a `devcontainer.json` pinned to its IDF image
-  and runs `idf.py` there, without an edit to the workflow.
-- **Manual run:** Actions, `release`, `Run workflow`, `project: <directory name>`. It builds and runs
-  the same checks and stops before publishing.
-- **Assets:** the files `ci.json` declares, each suffixed with the devkit or the chip, plus a
-  `SHA256SUMS` file covering them.
-- **Boot check:** a project whose `ci.json` names an emulator chip is booted in
-  [esp-emulator](https://github.com/espressif/esp-emulator) after it builds, and the release does not
-  publish unless the image produces the expected console output.
-- **Version bump:** `bash tools/release.sh <project> --bump patch` raises the version everywhere
-  `ci.json` lists it under `version.files`. `--bump minor`, `--bump major`, `--set X.Y.Z` and
-  `--dry-run` complete the set. The script refuses a dirty worktree, a version that is not ahead of
-  the current one, and a version whose tag already exists, and it writes files only: the commit, the
-  PR and the tag stay manual, because the tag has to point at the merged commit. The workflow reads
-  the version through the same script (`--print-version`) for its tag gate.
-- **Provenance:** the build uses the repository devcontainer, whose base image is pinned by digest in
-  `.devcontainer/Dockerfile`, and the versions each project pins: `Cargo.lock` for Rust, the
-  committed `idf_component.yml` manifests for C/C++. Anything the component
-  manager generates (`managed_components/`, `dependencies.lock`) is build output: it is not
-  committed, and it is reproducible from the config files a clean checkout already carries.
-- **Builds are not byte-identical:** ESP-IDF embeds build metadata (compile time, ELF digest) in the
-  image, so two builds of the same sources differ. `SHA256SUMS` identifies a build; it is not a
-  rebuild check.
+The steps to cut a release, what the workflow does, what a release carries and what to do when it fails
+are in [docs/releasing.md](docs/releasing.md).
 
 ## Licence
 
