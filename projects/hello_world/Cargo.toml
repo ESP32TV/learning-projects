@@ -1,6 +1,6 @@
 [package]
 name = "hello_world"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["ESP32 dev agent <esp32-dev-agent@mevoo.co.uk>"]
 edition = "2021"
 resolver = "2"
