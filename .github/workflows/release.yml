@@ -303,9 +303,13 @@ jobs:
   release:
     name: publish the release
     needs: [prepare, build, emulate]
-    # Publish only from a tag, only after the build and, when it ran, the boot check.
+    # Publish only when a tag was pushed, and only after the build and, when it ran, the
+    # boot check. The event is what decides: a workflow_dispatch takes any ref, including a
+    # tag, so a tag-shaped ref alone would let a manual run publish (#19). The ref check
+    # stays as a second gate in case a branch trigger is added later.
     if: |
       always() && !cancelled()
+      && github.event_name == 'push'
       && startsWith(github.ref, 'refs/tags/')
       && needs.build.result == 'success'
       && (needs.emulate.result == 'success' || needs.emulate.result == 'skipped')
