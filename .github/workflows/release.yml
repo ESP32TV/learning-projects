@@ -7,10 +7,11 @@ name: release
 # The project is named by the tag (`hello_world/v0.1.0`) or by the `project` input of
 # a manual run. Everything else comes from `projects/<project>/ci.json`:
 #
-#   container       "devcontainer" for the repository container, or an image
-#                   reference such as "espressif/idf@sha256:...". A C/C++ project
-#                   names its own IDF image, which is why the container is per
-#                   project and not fixed here.
+#   container       "devcontainer" for the repository container, or a path to a
+#                   devcontainer.json of the project's own, such as
+#                   "projects/<name>/devcontainer.json". A C/C++ project supplies
+#                   its own, pinned to the IDF image it needs, which is why the
+#                   container is per project and not fixed here.
 #   env             variables exported to ci.sh: application name, chip, target
 #   cache           {"paths": [...], "key_files": [...]} to keep build output
 #                   between runs; omitted when the project has nothing to cache
@@ -20,9 +21,10 @@ name: release
 #   emulator        {"chip": ..., "exit_on": ...} when esp-emulator can boot the
 #                   result; omitted for chips or projects it cannot run
 #
-# `ci.sh` runs inside that container with the project directory as the working
-# directory. It is the same command a developer runs, so a green CI run and a local
-# run come from one recipe.
+# The container is started by the devcontainer CLI, the same launcher VS Code uses,
+# so the mount, the user and the environment come out as they do locally. `ci.sh`
+# then runs inside it from the project directory: one recipe for CI and for a
+# developer.
 #
 # On a tag the run builds, boots the image in esp-emulator when the project declares
 # it, and publishes. A manual run does the same and stops before publishing.
@@ -41,7 +43,6 @@ permissions:
   contents: write
 
 env:
-  DEVCONTAINER_TAG: learning-projects-devcontainer:ci
   ESP_EMU_VERSION: 0.51.0
 
 jobs:
@@ -102,6 +103,10 @@ jobs:
           fi
 
           container="$(jq -r '.container' "${metadata}")"
+          if [ "${container}" != "devcontainer" ] && [ ! -f "${container}" ]; then
+            echo "::error file=${metadata}::container is '${container}' and no devcontainer.json exists at that path"
+            exit 1
+          fi
           artifacts="$(jq -c '.artifacts' "${metadata}")"
           cache_paths="$(jq -c '.cache.paths // []' "${metadata}")"
           cache_key="$(jq -r '(.cache.key_files // []) | map("'"${project_dir}"'/\(.)") | join(",")' "${metadata}")"
@@ -157,39 +162,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Two container sources: the repository devcontainer, or an image the project
-      # names for itself. A C/C++ project names its own IDF image, because the IDF
-      # version is per project.
-      - uses: docker/setup-buildx-action@v3
-        if: needs.prepare.outputs.container == 'devcontainer'
+      - name: Install the devcontainer CLI
+        run: npm install -g @devcontainers/cli@0.90.0
 
-      - name: Build the devcontainer image
-        if: needs.prepare.outputs.container == 'devcontainer'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: .devcontainer/Dockerfile
-          tags: ${{ env.DEVCONTAINER_TAG }}
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Pull the project's own container image
-        if: needs.prepare.outputs.container != 'devcontainer'
-        env:
-          IMAGE: ${{ needs.prepare.outputs.container }}
-        run: docker pull "${IMAGE}"
-
-      - name: Record the image to run
+      # The CLI is what VS Code runs: it reads the devcontainer.json, builds the
+      # image and starts the container with updateRemoteUserUID on, so the mounted
+      # workspace is writable inside without an ownership step here. A project that
+      # needs its own container points ci.json at its own devcontainer.json.
+      - name: Start the devcontainer
         env:
           CONTAINER: ${{ needs.prepare.outputs.container }}
         run: |
           set -euo pipefail
-          if [ "${CONTAINER}" = "devcontainer" ]; then
-            echo "IMAGE=${DEVCONTAINER_TAG}" >> "${GITHUB_ENV}"
-          else
-            echo "IMAGE=${CONTAINER}" >> "${GITHUB_ENV}"
+          config_args=()
+          if [ "${CONTAINER}" != "devcontainer" ]; then
+            config_args+=(--config "${CONTAINER}")
           fi
+          devcontainer up --workspace-folder . "${config_args[@]}" \
+            --cache-from type=gha --cache-to type=gha,mode=max
+
+      - name: Show what the container runs as
+        run: devcontainer exec --workspace-folder . bash -lc 'id; uname -m'
 
       # actions/cache takes a newline separated list, which a job output cannot
       # carry, so the list is resolved here.
@@ -218,20 +211,20 @@ jobs:
           key: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ hashFiles(needs.prepare.outputs.cache_key) }}
           restore-keys: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-
 
-      # The project's own build steps, in the project's own container.
+      # The project's own build steps, in the started devcontainer.
       - name: Build
         env:
           PROJECT_DIR: ${{ needs.prepare.outputs.project_dir }}
           BUILD_ENV: ${{ needs.prepare.outputs.build_env }}
         run: |
           set -euo pipefail
-          env_args=()
+          remote_env_args=()
           while IFS= read -r line; do
-            [ -n "${line}" ] && env_args+=(-e "${line}")
+            [ -n "${line}" ] && remote_env_args+=(--remote-env "${line}")
           done < <(printf '%s' "${BUILD_ENV}" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
 
-          docker run --rm -v "$PWD/${PROJECT_DIR}":/project -w /project \
-            "${env_args[@]}" "${IMAGE}" bash -lc './ci.sh'
+          devcontainer exec --workspace-folder . "${remote_env_args[@]}" \
+            bash -lc "cd ${PROJECT_DIR} && ./ci.sh"
 
       # Stage what the release carries, so the checksums, the artifact and the
       # release all describe the same file list.
