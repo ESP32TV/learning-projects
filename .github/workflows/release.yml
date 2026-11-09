@@ -14,7 +14,10 @@ name: release
 #                   container is per project and not fixed here.
 #   env             variables exported to ci.sh: application name, chip, target
 #   cache           {"paths": [...], "key_files": [...]} to keep build output
-#                   between runs; omitted when the project has nothing to cache
+#                   between runs; omitted when the project has nothing to cache.
+#                   Both are relative to the project directory: the workflow
+#                   prefixes them with projects/<name>/ before handing them to
+#                   actions/cache, which otherwise resolves them from the repo root.
 #   version         {"files": [{"path": ..., "pattern": ...}]}, the places the version
 #                   lives. tools/release.sh reads and writes them, and this workflow
 #                   reads them through that script, so there is one declaration
@@ -109,8 +112,19 @@ jobs:
             exit 1
           fi
           artifacts="$(jq -c '.artifacts' "${metadata}")"
-          cache_paths="$(jq -c '.cache.paths // []' "${metadata}")"
-          cache_key="$(jq -r '(.cache.key_files // []) | map("'"${project_dir}"'/\(.)") | join(",")' "${metadata}")"
+          # The paths in ci.json are relative to the project, so they get the same
+          # project prefix the key files get. Without it they resolve against the
+          # repository root, where no build output exists.
+          cache_paths="$(jq -c --arg dir "${project_dir}" '[.cache.paths // [] | .[] | "\($dir)/\(.)"]' "${metadata}")"
+          # A digest over the declared key files, so the cache key moves when a pin moves.
+          # hashFiles() in the build job takes one pattern per argument and cannot be handed
+          # a list computed here, and a comma-joined string would be a single glob.
+          cache_key="$(
+            jq -r '.cache.key_files // [] | .[]' "${metadata}" |
+              while IFS= read -r key_file; do
+                sha256sum "${project_dir}/${key_file}"
+              done | sha256sum | cut -c1-16
+          )"
           emulator_chip="$(jq -r '.emulator.chip // ""' "${metadata}")"
           emulator_exit_on="$(jq -r '.emulator.exit_on // ""' "${metadata}")"
 
@@ -205,7 +219,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CACHE_PATHS }}
-          key: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ hashFiles(needs.prepare.outputs.cache_key) }}
+          key: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-${{ needs.prepare.outputs.cache_key }}
           restore-keys: build-${{ runner.os }}-${{ needs.prepare.outputs.project }}-
 
       # The project's own build steps, in the started devcontainer.
