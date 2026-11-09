@@ -29,7 +29,7 @@ the rest of this repository.
 
 | Project | Summary | SoC | Devkit | ESP-IDF |
 | --- | --- | --- | --- | --- |
-| _none yet_ | | | | |
+| [`hello_world`](projects/hello_world) | Rust greeting that prints its crate version, its chip target and the ESP-IDF it was built against, released as one merged flash image | ESP32-C3 | ESP32-C3 devkit | v6.1 |
 
 ## Requirements
 
@@ -41,6 +41,27 @@ the rest of this repository.
 
 Each project's `README.md` records the container tag it is built and tested against, and the devkit
 it targets.
+
+## Local development in a container
+
+The repository ships one development container in `.devcontainer/`, so a clone needs nothing
+installed on the host:
+
+1. Open the repository folder in VS Code.
+2. Run `Dev Containers: Reopen in Container`.
+3. Build a project from the integrated terminal, with the command in that project's `README.md`.
+
+The container carries the Rust toolchains and `espflash` for every current ESP32 chip. ESP-IDF is
+not baked into it: each project fetches the IDF version pinned in its own `.cargo/config.toml` into
+its `.embuild/` directory on the first build, which is what allows two projects to sit on different
+IDF versions.
+
+A project gets its own `.devcontainer/` only when the shared one cannot serve it, for example a
+C/C++ example that needs an IDF tree on `PATH`, or a project pinned to a toolchain the shared image
+does not carry. The shared container stays the default for everything else.
+
+The container starts with device cgroup rules for `ttyUSB` and `ttyACM`, so a board plugged into the
+host appears at `/dev/ttyUSB0` or `/dev/ttyACM0` inside without restarting the container.
 
 ## Building an example
 
@@ -104,10 +125,23 @@ developer machine.
 
 - **Tag:** `<project>/v<major>.<minor>.<patch>`, for example `tinyml-demo/v1.2.3`. The tag names the
   project, so a release carries that project's images only.
-- **Assets:** the images the build produces, each suffixed with the devkit, plus a `SHA256SUMS` file
-  for that build.
-- **Provenance:** the build uses the container tag recorded in the project's `README.md` and the
-  versions pinned in the project's committed `idf_component.yml` manifests. Anything the component
+- **One workflow, with no build knowledge in it:** `.github/workflows/release.yml` serves every
+  project. It takes the project from the tag, or from the `project` input of a manual run, and reads
+  that project's `ci.json`: which container to use (the repository devcontainer, or an image such as
+  an IDF release), the environment for the build, what to cache, the command that prints the version,
+  the files the build produces, and whether esp-emulator can boot the result. The build steps are the
+  project's own `ci.sh`. A C/C++ project therefore names its own IDF image and runs `idf.py` there
+  without an edit to the workflow.
+- **Manual run:** Actions, `release`, `Run workflow`, `project: <directory name>`. It builds and runs
+  the same checks and stops before publishing.
+- **Assets:** the files `ci.json` declares, each suffixed with the devkit or the chip, plus a
+  `SHA256SUMS` file covering them.
+- **Boot check:** a project whose `ci.json` names an emulator chip is booted in
+  [esp-emulator](https://github.com/espressif/esp-emulator) after it builds, and the release does not
+  publish unless the image produces the expected console output.
+- **Provenance:** the build uses the repository devcontainer, whose base image is pinned by digest in
+  `.devcontainer/Dockerfile`, and the versions each project pins: `Cargo.lock` for Rust, the
+  committed `idf_component.yml` manifests for C/C++. Anything the component
   manager generates (`managed_components/`, `dependencies.lock`) is build output: it is not
   committed, and it is reproducible from the config files a clean checkout already carries.
 - **Builds are not byte-identical:** ESP-IDF embeds build metadata (compile time, ELF digest) in the

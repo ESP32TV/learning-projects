@@ -1,0 +1,10 @@
+# Build output. The crate's dependency resolution lives in Cargo.lock, which is
+# committed: it is the pin for this binary.
+/target
+/.embuild
+/sdkconfig
+/.vscode
+
+# Written by ci.sh and by the release workflow, never committed.
+/*.bin
+/SHA256SUMS
