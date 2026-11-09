@@ -28,10 +28,12 @@ I (45) hello_world: Hello, world!
 first build. That directory holds about 7 GB, it is not committed, and it is what the first build
 spends its time on.
 
-The version appears twice: `version` in `Cargo.toml`, which the example prints, and
+The version appears three times: `version` in `Cargo.toml`, which the example prints,
 `CONFIG_APP_PROJECT_VER` in `sdkconfig.defaults`, which the ESP-IDF application descriptor prints as
-`App version`. The release workflow fails when the two disagree, and when either disagrees with the
-tag.
+`App version`, and the root package entry in `Cargo.lock`, which `cargo build --locked` requires to
+match `Cargo.toml`. All three are declared in `ci.json`, so `bash tools/release.sh hello_world
+--bump patch` moves them together. The release workflow fails when any of them disagrees with
+another, and when they disagree with the tag.
 
 ## Build
 
