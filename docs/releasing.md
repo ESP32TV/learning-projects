@@ -30,7 +30,7 @@ echo "$VERSION"
 `--dry-run` to see the edits without writing them.
 
 The script writes every file that `ci.json` lists under `version.files`
-(`projects/hello_world/ci.json:12-23`), then reads them back. For `hello_world` those files are
+(`projects/hello_world/ci.json:12-27`), then reads them back. For `hello_world` those files are
 `Cargo.toml`, `sdkconfig.defaults` and `Cargo.lock`. It refuses a dirty worktree, a version that is not
 ahead of the current one, and a version whose tag already exists locally or on the origin.
 
@@ -102,10 +102,10 @@ artifacts and whether an emulator chip is declared.
 
 | Job | What it does |
 |---|---|
-| `prepare` | resolves the project from the tag or the dispatch input, validates `ci.json` and `ci.sh`, reads the version through `tools/release.sh --print-version` (`release.yml:125`), and rejects a tag that disagrees with it (`:131-134`) |
-| `build` | starts the repository devcontainer, runs the project's own `ci.sh` in it, copies the declared artifacts and writes `SHA256SUMS` over that exact list (`:235-245`) |
-| `emulate` | boots the image in esp-emulator and requires the declared console line (`:286-287`); skipped for a project whose `ci.json` names no emulator chip |
-| `release` | publishes `dist/*` on a tag only, after `build` and, when it ran, `emulate` (`:293-310`) |
+| `prepare` | resolves the project from the tag or the dispatch input, validates `ci.json` and `ci.sh`, reads the version through `tools/release.sh --print-version` (`release.yml:139`), and rejects a tag that disagrees with it (`:145-148`) |
+| `build` | starts the repository devcontainer, runs the project's own `ci.sh` in it, copies the declared artifacts and writes `SHA256SUMS` over that exact list (`:250-259`) |
+| `emulate` | boots the image in esp-emulator and requires the declared console line (`:300-301`); skipped for a project whose `ci.json` names no emulator chip |
+| `release` | publishes `dist/*` on a tag push only, after `build` and, when it ran, `emulate` (`:303-337`) |
 
 The container comes from `.devcontainer/`, whose base image is pinned by digest, and the project pins
 its own dependencies: `Cargo.lock` for Rust, the committed `idf_component.yml` manifests for C/C++.
@@ -118,15 +118,17 @@ matches.
 
 ## Before the tag
 
-A manual run exercises the same jobs and publishes nothing:
+A manual run exercises the same jobs and publishes nothing, from any ref. Publishing requires the
+`push` event, so a tag push is the only thing that can create a release:
 
 ```bash
 gh workflow run release.yml --field project=$PROJECT
 gh run list --event workflow_dispatch --limit 3
 ```
 
-`workflow_dispatch` uses the workflow file on the default branch, so dispatch after the bump has
-merged. This is the cheapest way to find a broken build before a tag exists.
+`workflow_dispatch` runs the workflow file from the default branch unless a `--ref` names another ref,
+so dispatch after the bump has merged. This is the cheapest way to find a broken build before a tag
+exists.
 
 ## What a release carries
 
@@ -139,11 +141,11 @@ Each row is a failure this repository has produced, with the fix that landed.
 
 | Message | Cause | Fix |
 |---|---|---|
-| `no directory projects/projects/hello_world` | the dispatch input already carried `projects/` | the input is normalised (`release.yml:86-88`), PR #4 |
+| `no directory projects/projects/hello_world` | the dispatch input already carried `projects/` | the input is normalised (`release.yml:89-91`), PR #4 |
 | `Permission denied (os error 13) at path "/project/target…"` | the runner's user id differed from the mount owner | the container is started with the devcontainer CLI, which maps the user, PR #6 |
 | `failed to create directory '/home/esp/.cargo/registry/cache/…'` | a named volume owned by root, and the container user is `esp` | the volume was removed, PR #8 |
 | `error: cannot update the lock file … because --locked was passed` | the bump raised the crate version and left `Cargo.lock` behind | the lock is declared in `version.files`, PR #15 |
-| `the project is version X but the tag asks for Y` | the tag and the project disagree | cut the tag from the merged commit of the bump (`release.yml:131-134`) |
+| `the project is version X but the tag asks for Y` | the tag and the project disagree | cut the tag from the merged commit of the bump (`release.yml:145-148`) |
 | the emulator job fails without the expected line | the image does not print what `ci.json` declares | check `emulator.exit_on`, then boot the image locally |
 
 ## Known limits
